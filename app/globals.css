@@ -1,0 +1,22 @@
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ox: #F97316;
+  --ox-dark: #C2410C;
+  --ox-light: #FFF7ED;
+  --ox-mid: #FDBA74;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Pretendard', 'Segoe UI', sans-serif;
+  background: #F9FAFB;
+  color: #111827;
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
