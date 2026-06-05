@@ -65,6 +65,40 @@ type SourceItem = { name: string; url: string; key: string };
 type CustomSources = Record<string, SourceItem[]>;
 
 const STORAGE_KEY = "re_insight_sources_v1";
+const CONTEXT_KEY = "re_insight_context_v1";
+
+const DEFAULT_CONTEXT: Record<string, string> = {
+  JP: `일본법인 사업 컨텍스트:
+- C&I PPA 소형 PV 권리 매각 (Orix 향, 주고쿠 지방 0.3~1.2MW 다수)
+- BESS 독립 개발·매각: 카마1호(50MW/174MWh), 겐카이초(32.4MW), 유수이·사츠마초 등 소형 BESS군
+- 기존 FIT 자산 운영 및 FIT→FIP 전환 추진
+- 매각 완료: 고겐1·2(이익 50.8억엔), 진행 중: 쿠시로·호코타·아키바·이나시키(신규 매각처 선정 중)
+- 핵심 이슈: FY2027 FIT/FIP 지원 종료, 출력억제 리스크, BESS LTDA 입찰 전략, 포스트-FIT 수익화(Merchant·PPA·FIP)`,
+  US: `미국법인 사업 컨텍스트 (174PG + HWR 통합):
+- 대형·중소형 PV·BESS 개발, PPA 협상, Tax Equity 매각, O&M 수주
+- 주요 프로젝트: Oberon II(100MW TX, Disney PPA, Sol Systems NBO 협의), Oberon III(165MW TX), Boulder Solar 3(128MW+BESS NV, NVE PPA $49.95/MWh, Tax Equity NBO 6월초), Bonanza Peak(600MW CA), Astoria BESS(100MW NY, 공사 중 COD 26.12월), Taormina/Lavender BESS(각 230MW TX, CPS Shortlist 대기)
+- 핵심 이슈: IRA Tax Equity·ITC, PPA 협상, 계통연계 비용, FEOC 규정 강화`,
+  EU: `유럽법인 사업 컨텍스트 (스페인·이탈리아·아일랜드):
+- BESS·PV+ESS 개발·매각, B2B PPA 유동화
+- 주요 자산: 이탈리아 Trullo BESS(6x100MW, Trullo B SPA 6월 목표, Vault RTB 매각), 스페인 B2B PPA 유동화 1·2차(Lux co. 구조 설계), 아일랜드 Shannonbridge(63.2MW BESS, LCIS2 대관), Las Mesas(스페인, 철수 가능성)
+- 핵심 이슈: AU/CdS 인허가 지연, BESS 매각 타이밍, PPA 유동화 구조, REPowerEU 정책`,
+  AU: `호주법인 사업 컨텍스트:
+- PV+BESS Hybrid 개발·매각
+- 주요 프로젝트: Gregadoo(65MW+200MW BESS NSW, FIA·SSIA 개시, TransGrid 설계 협의), Jindera(120MW+200MW BESS NSW, GPS 6월초 제출)
+- 핵심 이슈: NEM 계통 혼잡, TransGrid 연계 지연, SSD 인허가`,
+};
+
+function loadContext(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(CONTEXT_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveContext(ctx: Record<string, string>) {
+  try { localStorage.setItem(CONTEXT_KEY, JSON.stringify(ctx)); } catch {}
+}
 
 function loadSources(): CustomSources {
   if (typeof window === "undefined") return {};
@@ -105,10 +139,19 @@ export default function Dashboard() {
   const [newName, setNewName] = useState("");
   const [newCc, setNewCc] = useState<CountryKey>("JP");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [modalTab, setModalTab] = useState<"sources" | "context">("sources");
+  const [customContext, setCustomContext] = useState<Record<string, string>>({});
+  const [editingContext, setEditingContext] = useState<Record<string, string>>({});
 
-  useEffect(() => { setCustomSources(loadSources()); }, []);
+  useEffect(() => {
+    setCustomSources(loadSources());
+    const saved = loadContext();
+    setCustomContext(saved);
+    setEditingContext({ ...DEFAULT_CONTEXT, ...saved });
+  }, []);
 
   const allSources = mergeSources(customSources);
+  const getContext = (cc: string) => editingContext[cc] || DEFAULT_CONTEXT[cc] || "";
   const selectedWeek = WEEKS.find((w) => w.value === week);
   const weekLabel = selectedWeek ? `${selectedWeek.label} (${selectedWeek.dateRange})` : week;
 
@@ -183,7 +226,7 @@ export default function Dashboard() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...article, focus }),
+        body: JSON.stringify({ ...article, focus, customContext: getContext(article.country) }),
       });
       const data = await res.json();
       setArticles((prev) =>
@@ -248,93 +291,142 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 소스 편집 모달 */}
+      {/* 설정 모달 */}
       {showSources && (
-        <div style={{
-          position: "fixed", inset: 0, zIndex: 150, background: "rgba(0,0,0,0.45)",
-          display: "flex", alignItems: "center", justifyContent: "center", padding: 16
-        }} onClick={() => setShowSources(false)}>
-          <div style={{
-            background: "#fff", borderRadius: 14, width: "100%", maxWidth: 560,
-            maxHeight: "85vh", overflow: "auto", boxShadow: "0 8px 40px rgba(0,0,0,0.18)"
-          }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: "18px 20px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <p style={{ fontSize: 15, fontWeight: 700 }}>탐색 소스 관리</p>
-                <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>국가별 기사 탐색에 사용할 웹사이트를 추가·삭제하세요</p>
-              </div>
-              <button onClick={() => setShowSources(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)", lineHeight: 1 }}>×</button>
-            </div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 150, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={() => setShowSources(false)}>
+          <div style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 580, maxHeight: "88vh", overflow: "hidden", boxShadow: "0 8px 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column" }}
+            onClick={(e) => e.stopPropagation()}>
 
-            {/* 추가 폼 */}
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", background: "#FAFAFA" }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 10, letterSpacing: "0.06em", textTransform: "uppercase" }}>새 소스 추가</p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <select value={newCc} onChange={(e) => setNewCc(e.target.value as CountryKey)}
-                  style={{ fontSize: 12, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, background: "#fff", cursor: "pointer" }}>
-                  {(Object.keys(COUNTRY_CONFIG) as CountryKey[]).map((cc) => (
-                    <option key={cc} value={cc}>{COUNTRY_CONFIG[cc].flag} {COUNTRY_CONFIG[cc].label}</option>
-                  ))}
-                </select>
-                <input value={newName} onChange={(e) => setNewName(e.target.value)}
-                  placeholder="매체명 (선택)"
-                  style={{ flex: "0 0 140px", fontSize: 12, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, outline: "none" }} />
-                <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  onKeyDown={(e) => e.key === "Enter" && handleAddSource()}
-                  style={{ flex: 1, minWidth: 160, fontSize: 12, padding: "7px 10px", border: "1px solid var(--border)", borderRadius: 8, outline: "none" }} />
-                <button onClick={handleAddSource}
-                  style={{ padding: "7px 16px", background: "var(--ox)", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  + 추가
-                </button>
+            {/* 헤더 + 탭 */}
+            <div style={{ padding: "16px 20px 0", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <p style={{ fontSize: 15, fontWeight: 700 }}>설정</p>
+                <button onClick={() => setShowSources(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "var(--text-muted)", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ display: "flex" }}>
+                {([["sources", "🔗 탐색 소스"], ["context", "📋 법인 맥락"]] as const).map(([key, label]) => (
+                  <button key={key} onClick={() => setModalTab(key)} style={{ padding: "8px 18px", fontSize: 12.5, fontWeight: modalTab === key ? 600 : 400, border: "none", borderBottom: modalTab === key ? "2px solid var(--ox)" : "2px solid transparent", background: "none", cursor: "pointer", color: modalTab === key ? "var(--ox)" : "var(--text-muted)", transition: "all 0.15s" }}>
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* 국가별 소스 목록 */}
-            <div style={{ padding: "16px 20px" }}>
-              {(Object.keys(COUNTRY_CONFIG) as CountryKey[]).map((cc) => {
-                const cfg = COUNTRY_CONFIG[cc];
-                const srcs = allSources[cc] || [];
-                const baseSrcs = SOURCES[cc] || [];
-                return (
-                  <div key={cc} style={{ marginBottom: 18 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <span style={{ fontSize: 14 }}>{cfg.flag}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: cfg.accent }}>{cfg.label}</span>
-                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{srcs.length}개</span>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {srcs.map((src) => {
-                        const isBase = baseSrcs.some((b) => b.key === src.key);
-                        return (
-                          <div key={src.key} style={{
-                            display: "flex", alignItems: "center", justifyContent: "space-between",
-                            padding: "8px 12px", borderRadius: 8,
-                            background: isBase ? "#FAFAFA" : cfg.bg,
-                            border: `1px solid ${isBase ? "var(--border)" : cfg.accent + "30"}`
-                          }}>
-                            <div style={{ minWidth: 0 }}>
-                              <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>{src.name}</p>
-                              <p style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}>{src.url}</p>
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                              {isBase && <span style={{ fontSize: 9, padding: "2px 6px", background: "#F0F0F0", color: "var(--text-muted)", borderRadius: 4, fontWeight: 600 }}>기본</span>}
-                              <button onClick={() => handleRemoveSource(cc, src.key)}
-                                disabled={isBase}
-                                style={{
-                                  width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center",
-                                  border: "none", borderRadius: 5, cursor: isBase ? "not-allowed" : "pointer",
-                                  background: isBase ? "transparent" : "#FEE2E2", color: isBase ? "var(--text-muted)" : "#DC2626",
-                                  fontSize: 13, fontWeight: 700, opacity: isBase ? 0.3 : 1
-                                }}>×</button>
-                            </div>
-                          </div>
-                        );
-                      })}
+            {/* 탭 콘텐츠 */}
+            <div style={{ flex: 1, overflowY: "auto" }}>
+
+              {/* ── 탐색 소스 탭 ── */}
+              {modalTab === "sources" && (
+                <>
+                  <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", background: "#FAFAFA" }}>
+                    <p style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-muted)", marginBottom: 9, letterSpacing: "0.06em", textTransform: "uppercase" }}>새 소스 추가</p>
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                      <select value={newCc} onChange={(e) => setNewCc(e.target.value as CountryKey)}
+                        style={{ fontSize: 12, padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 8, background: "#fff", cursor: "pointer" }}>
+                        {(Object.keys(COUNTRY_CONFIG) as CountryKey[]).map((cc) => (
+                          <option key={cc} value={cc}>{COUNTRY_CONFIG[cc].flag} {COUNTRY_CONFIG[cc].label}</option>
+                        ))}
+                      </select>
+                      <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="매체명 (선택)"
+                        style={{ flex: "0 0 130px", fontSize: 12, padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 8, outline: "none" }} />
+                      <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://example.com"
+                        onKeyDown={(e) => e.key === "Enter" && handleAddSource()}
+                        style={{ flex: 1, minWidth: 150, fontSize: 12, padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 8, outline: "none" }} />
+                      <button onClick={handleAddSource}
+                        style={{ padding: "7px 14px", background: "var(--ox)", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        + 추가
+                      </button>
                     </div>
                   </div>
-                );
-              })}
+                  <div style={{ padding: "14px 20px" }}>
+                    {(Object.keys(COUNTRY_CONFIG) as CountryKey[]).map((cc) => {
+                      const cfg = COUNTRY_CONFIG[cc];
+                      const srcs = allSources[cc] || [];
+                      const baseSrcs = SOURCES[cc] || [];
+                      return (
+                        <div key={cc} style={{ marginBottom: 18 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 7 }}>
+                            <span style={{ fontSize: 14 }}>{cfg.flag}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: cfg.accent }}>{cfg.label}</span>
+                            <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{srcs.length}개</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {srcs.map((src) => {
+                              const isBase = baseSrcs.some((b) => b.key === src.key);
+                              return (
+                                <div key={src.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 11px", borderRadius: 8, background: isBase ? "#FAFAFA" : cfg.bg, border: `1px solid ${isBase ? "var(--border)" : cfg.accent + "30"}` }}>
+                                  <div style={{ minWidth: 0 }}>
+                                    <p style={{ fontSize: 12, fontWeight: 500 }}>{src.name}</p>
+                                    <p style={{ fontSize: 10, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 360 }}>{src.url}</p>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                                    {isBase && <span style={{ fontSize: 9, padding: "1px 5px", background: "#F0F0F0", color: "var(--text-muted)", borderRadius: 4, fontWeight: 600 }}>기본</span>}
+                                    <button onClick={() => handleRemoveSource(cc, src.key)} disabled={isBase}
+                                      style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 5, cursor: isBase ? "not-allowed" : "pointer", background: isBase ? "transparent" : "#FEE2E2", color: isBase ? "var(--text-muted)" : "#DC2626", fontSize: 13, fontWeight: 700, opacity: isBase ? 0.3 : 1 }}>×</button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* ── 법인 맥락 탭 ── */}
+              {modalTab === "context" && (
+                <div style={{ padding: "16px 20px" }}>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.7 }}>
+                    법인별 현안·프로젝트·맥락을 수정하면 <strong>시사점 생성 시 즉시 반영</strong>됩니다.<br />
+                    수정 후 반드시 <strong>저장</strong> 버튼을 눌러주세요. 브라우저에 저장됩니다.
+                  </p>
+                  {(Object.keys(COUNTRY_CONFIG) as CountryKey[]).map((cc) => {
+                    const cfg = COUNTRY_CONFIG[cc];
+                    const isModified = customContext[cc] !== undefined;
+                    return (
+                      <div key={cc} style={{ marginBottom: 22 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            <span style={{ fontSize: 15 }}>{cfg.flag}</span>
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.accent }}>{cfg.label}</span>
+                            {isModified && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: cfg.badge, color: cfg.accent, fontWeight: 600 }}>수정됨</span>}
+                          </div>
+                          {isModified && (
+                            <button onClick={() => {
+                              const updated = { ...customContext };
+                              delete updated[cc];
+                              setCustomContext(updated);
+                              saveContext(updated);
+                              setEditingContext((prev) => ({ ...prev, [cc]: DEFAULT_CONTEXT[cc] }));
+                              showToast("기본값으로 복원됨", "ok");
+                            }} style={{ fontSize: 10.5, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer" }}>
+                              ↺ 기본값 복원
+                            </button>
+                          )}
+                        </div>
+                        <textarea
+                          value={editingContext[cc] || ""}
+                          onChange={(e) => setEditingContext((prev) => ({ ...prev, [cc]: e.target.value }))}
+                          rows={6}
+                          style={{ width: "100%", fontSize: 11.5, padding: "10px 12px", border: `1px solid ${isModified ? cfg.accent + "60" : "var(--border)"}`, borderRadius: 9, outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.75, color: "var(--text-primary)", background: isModified ? cfg.bg : "#FAFAFA" }}
+                        />
+                        <button onClick={() => {
+                          const updated = { ...customContext, [cc]: editingContext[cc] };
+                          setCustomContext(updated);
+                          saveContext(updated);
+                          showToast(`${cfg.label} 맥락 저장됨`, "ok");
+                        }} style={{ marginTop: 7, padding: "7px 16px", background: cfg.accent, color: "#fff", border: "none", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                          저장
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
             </div>
           </div>
         </div>
@@ -434,16 +526,17 @@ export default function Dashboard() {
               );
             })}
 
-            {/* 소스 편집 버튼 */}
-            <button onClick={() => setShowSources(true)}
-              style={{
-                marginTop: 12, display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 11px", border: "1px dashed var(--border)", borderRadius: 9,
-                background: "transparent", cursor: "pointer", fontSize: 11.5, color: "var(--text-muted)",
-                width: "100%", transition: "all 0.15s"
-              }}>
-              ⚙ 탐색 소스 편집
-            </button>
+            {/* 설정 버튼 그룹 */}
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+              <button onClick={() => { setModalTab("sources"); setShowSources(true); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 11px", border: "1px dashed var(--border)", borderRadius: 9, background: "transparent", cursor: "pointer", fontSize: 11.5, color: "var(--text-muted)", width: "100%", transition: "all 0.15s" }}>
+                🔗 탐색 소스 편집
+              </button>
+              <button onClick={() => { setModalTab("context"); setShowSources(true); }}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 11px", border: "1px dashed var(--border)", borderRadius: 9, background: "transparent", cursor: "pointer", fontSize: 11.5, color: "var(--text-muted)", width: "100%", transition: "all 0.15s" }}>
+                📋 법인 맥락 편집
+              </button>
+            </div>
 
             {articles.length > 0 && (
               <button onClick={() => { setArticles([]); setExpanded(null); setTab("ALL"); }}
