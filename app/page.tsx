@@ -2,12 +2,52 @@
 import { useState, useCallback, useEffect } from "react";
 import { ENTITY_CONTEXT, SOURCES, Article } from "@/lib/context";
 
-const WEEKS = [
-  { label: "2026년 23주차 (6/1~6/7)", value: "2026-W23" },
-  { label: "2026년 22주차 (5/25~5/31)", value: "2026-W22" },
-  { label: "2026년 21주차 (5/18~5/24)", value: "2026-W21" },
-  { label: "2026년 20주차 (5/11~5/17)", value: "2026-W20" },
-];
+// 월 기준 주차: 각 월의 1일이 포함된 주가 1주차
+// 예) 6/1(월)~6/7(일) = 6월 1주차
+function generateWeeks(): { label: string; value: string; dateRange: string }[] {
+  const weeks: { label: string; value: string; dateRange: string }[] = [];
+  const now = new Date();
+  const year = now.getFullYear();
+  const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+
+  for (let month = 1; month <= 12; month++) {
+    const firstDay = new Date(year, month - 1, 1);
+    if (firstDay > now) break;
+
+    // 해당 월 1일이 속한 주의 월요일
+    const dow = firstDay.getDay();
+    const mondayOfFirstWeek = new Date(firstDay);
+    mondayOfFirstWeek.setDate(firstDay.getDate() - (dow === 0 ? 6 : dow - 1));
+
+    const lastDay = new Date(year, month, 0);
+    let weekNum = 1;
+    let cursor = new Date(mondayOfFirstWeek);
+
+    while (true) {
+      const monday = new Date(cursor);
+      const sunday = new Date(cursor);
+      sunday.setDate(sunday.getDate() + 6);
+
+      // 이 주가 해당 월에 걸쳐있는지
+      const inMonth = monday.getMonth() + 1 === month || sunday.getMonth() + 1 === month;
+      if (!inMonth || monday > now) break;
+
+      weeks.push({
+        label: `${month}월 ${weekNum}주차`,
+        value: `${year}-${String(month).padStart(2, "0")}-W${weekNum}`,
+        dateRange: `${fmt(monday)}~${fmt(sunday)}`,
+      });
+
+      weekNum++;
+      cursor.setDate(cursor.getDate() + 7);
+      if (monday > lastDay) break;
+    }
+  }
+
+  return weeks.reverse();
+}
+
+const WEEKS = generateWeeks();
 
 const COUNTRY_CONFIG = {
   JP: { label: "일본", flag: "🇯🇵", accent: "#E8521A", bg: "#FFF4EE", badge: "#FDE8DB" },
@@ -65,7 +105,8 @@ export default function Dashboard() {
   useEffect(() => { setCustomSources(loadSources()); }, []);
 
   const allSources = mergeSources(customSources);
-  const weekLabel = WEEKS.find((w) => w.value === week)?.label || week;
+  const selectedWeek = WEEKS.find((w) => w.value === week);
+  const weekLabel = selectedWeek ? `${selectedWeek.label} (${selectedWeek.dateRange})` : week;
 
   const showToast = (msg: string, type: "ok" | "err" = "ok") => {
     setToast({ msg, type });
@@ -325,7 +366,7 @@ export default function Dashboard() {
             <p style={{ fontSize: 9.5, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 5 }}>주차 선택</p>
             <select value={week} onChange={(e) => setWeek(e.target.value)}
               style={{ width: "100%", fontSize: 11.5, padding: "7px 9px", border: "1px solid var(--border)", borderRadius: 8, background: "#fff", color: "var(--text-primary)", outline: "none", marginBottom: 14 }}>
-              {WEEKS.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
+              {WEEKS.map((w) => <option key={w.value} value={w.value}>{w.label} ({w.dateRange})</option>)}
             </select>
 
             {/* 법인 탐색 */}

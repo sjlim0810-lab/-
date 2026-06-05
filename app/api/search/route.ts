@@ -27,7 +27,7 @@ ${sourceList}
 - 제목은 한글로 번역
 - 실제 존재하는 URL만 사용
 
-JSON 배열로만 응답하세요 (마크다운 없이):
+JSON 배열로만 응답하세요 (마크다운, 코드블록 없이 순수 JSON만):
 [
   {
     "id": "고유ID(영문숫자8자)",
@@ -39,8 +39,8 @@ JSON 배열로만 응답하세요 (마크다운 없이):
   }
 ]`;
 
+  // 1차: 웹검색 베타
   try {
-    // 1차 시도: 웹검색 베타 포함
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -50,7 +50,7 @@ JSON 배열로만 응답하세요 (마크다운 없이):
         "anthropic-beta": "web-search-2025-03-05",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-5-20251101",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 2000,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: [{ role: "user", content: prompt }],
@@ -59,27 +59,24 @@ JSON 배열로만 응답하세요 (마크다운 없이):
 
     const data = await res.json();
 
-    // 웹검색 베타 미지원 시 일반 모드로 폴백
-    if (data.error) {
-      console.error("Web search attempt failed:", JSON.stringify(data.error));
-      return await searchFallback(prompt);
+    if (!data.error) {
+      const textBlocks = (data.content ?? []).filter((b: { type: string }) => b.type === "text");
+      const raw = textBlocks.map((b: { text: string }) => b.text).join("");
+      const jsonMatch = raw.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return NextResponse.json({ articles: parsed });
+        }
+      }
+    } else {
+      console.error("Web search error:", JSON.stringify(data.error));
     }
-
-    const textBlocks = (data.content ?? []).filter((b: { type: string }) => b.type === "text");
-    const raw = textBlocks.map((b: { text: string }) => b.text).join("");
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return NextResponse.json({ articles: [] });
-    const parsed = JSON.parse(jsonMatch[0]);
-    return NextResponse.json({ articles: parsed });
-
   } catch (e) {
-    console.error("Search error:", e);
-    return NextResponse.json({ articles: [] }, { status: 500 });
+    console.error("Web search request failed:", e);
   }
-}
 
-// 웹검색 베타 없이 일반 claude로 폴백
-async function searchFallback(prompt: string) {
+  // 2차 폴백: 웹검색 없이 일반 claude-haiku
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -91,21 +88,25 @@ async function searchFallback(prompt: string) {
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 2000,
-        messages: [{ role: "user", content: prompt + "\n\n※ 웹 검색 없이 알고 있는 최신 정보 기준으로 응답하세요." }],
+        messages: [{ role: "user", content: prompt }],
       }),
     });
+
     const data = await res.json();
+
     if (data.error) {
-      console.error("Fallback also failed:", JSON.stringify(data.error));
+      console.error("Fallback error:", JSON.stringify(data.error));
       return NextResponse.json({ articles: [], error: data.error.message }, { status: 500 });
     }
+
     const raw = data.content?.[0]?.text ?? "";
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    const jsonMatch = raw.match(/\[[\s\S]*?\]/);
     if (!jsonMatch) return NextResponse.json({ articles: [] });
     const parsed = JSON.parse(jsonMatch[0]);
     return NextResponse.json({ articles: parsed, fallback: true });
+
   } catch (e) {
-    console.error("Fallback error:", e);
+    console.error("Fallback request failed:", e);
     return NextResponse.json({ articles: [] }, { status: 500 });
   }
 }
