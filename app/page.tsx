@@ -296,7 +296,7 @@ export default function Dashboard() {
       )}
 
       {/* 전체 레이아웃 */}
-      <div style={{ display: "flex", flex: 1, maxWidth: 1280, width: "100%", margin: "0 auto", minHeight: "100vh" }}>
+      <div style={{ display: "flex", flex: 1, width: "100%", minHeight: "100vh" }}>
 
         {/* 사이드바 */}
         <aside style={{
