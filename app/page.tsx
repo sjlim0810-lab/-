@@ -15,22 +15,27 @@ function generateWeeks(): { label: string; value: string; dateRange: string }[] 
     if (firstDay > now) break;
 
     // 해당 월 1일이 속한 주의 월요일
-    const dow = firstDay.getDay();
-    const mondayOfFirstWeek = new Date(firstDay);
-    mondayOfFirstWeek.setDate(firstDay.getDate() - (dow === 0 ? 6 : dow - 1));
+    const dow = firstDay.getDay(); // 0=일,1=월,...
+    const offset = dow === 0 ? -6 : 1 - dow;
+    const weekStart = new Date(year, month - 1, 1 + offset);
 
+    // 해당 월 마지막 날
     const lastDay = new Date(year, month, 0);
+
     let weekNum = 1;
-    let cursor = new Date(mondayOfFirstWeek);
+    let ms = weekStart.getTime();
+    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+    const maxWeeks = 6; // 한 달 최대 6주
 
-    while (true) {
-      const monday = new Date(cursor);
-      const sunday = new Date(cursor);
-      sunday.setDate(sunday.getDate() + 6);
+    for (let w = 0; w < maxWeeks; w++) {
+      const monday = new Date(ms);
+      const sunday = new Date(ms + 6 * 24 * 60 * 60 * 1000);
 
-      // 이 주가 해당 월에 걸쳐있는지
-      const inMonth = monday.getMonth() + 1 === month || sunday.getMonth() + 1 === month;
-      if (!inMonth || monday > now) break;
+      // 이 주가 해당 월에 걸쳐있는지 & 현재 이전인지
+      if (monday > now) break;
+      if (monday > lastDay) break;
+      const inMonth = monday.getMonth() === month - 1 || sunday.getMonth() === month - 1;
+      if (!inMonth) break;
 
       weeks.push({
         label: `${month}월 ${weekNum}주차`,
@@ -39,8 +44,7 @@ function generateWeeks(): { label: string; value: string; dateRange: string }[] 
       });
 
       weekNum++;
-      cursor.setDate(cursor.getDate() + 7);
-      if (monday > lastDay) break;
+      ms += msPerWeek;
     }
   }
 
